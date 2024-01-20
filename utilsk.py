@@ -21,7 +21,7 @@ actions={
     "northwest":7,
 
     "pick":8,
-    "open_door":9
+    "open_door":9,
     
 }
 
@@ -34,14 +34,8 @@ positions={
 }
 def initialize():
     
-    positions={
-    "agent":None,
-    "key":None,
-    "door":None,
-    "door_front":None,
-    "stairs":None
-    }
-
+    for key in positions:
+        positions[key] = None
     
 def is_infront(i,j,i_,j_):
     if (i == i_ and abs(j-j_)==1) or (j == j_ and abs(i-i_)==1):
@@ -168,9 +162,9 @@ def astar(array, start, goal):
                 fscore[neighbor] = tentative_g_score + heuristic(neighbor, goal)
 
                 heapq.heappush(oheap, (fscore[neighbor], neighbor))
- 
-    # return random_direction = random.choice([(x-1, y-1), (x, y-1), (x+1, y-1),(x-1, y),(x+1, y),(x-1, y+1),(x, y+1),(x+1, y+1)])
-    raise ValueError("Can't find no path")
+    x,y=positions["agent"]
+    return [random.choice([(x-1, y-1), (x, y-1), (x+1, y-1),(x-1, y),(x+1, y),(x-1, y+1),(x, y+1),(x+1, y+1)])]
+    # raise ValueError("Can't find no path")
 
 #finds a front location in the map for something. for example: a door
 def front_location(obs,i,j):
@@ -193,7 +187,7 @@ def find_borderline_cells(grid):
     for i in range(21):
         for j in range(79):
             #46 is "."
-            if grid[i][j] == 46:
+            if grid[i][j] == 46 or grid[i][j] == 35:
                 # Check if any adjacent neighbor has a value of 32
                 for dx in [-1, 0, 1]:
                     for dy in [-1, 0, 1]:
@@ -204,7 +198,7 @@ def find_borderline_cells(grid):
     return list(borderline_cells)  
 
 
-def decide_next_cell_to_explore(grid, random_probability=0.2):
+def decide_next_cell_to_explore(grid, random_probability=0.02, eta=0.6):
     borderline_cells = find_borderline_cells(grid)
     x,y=positions['agent']
     if not borderline_cells:
@@ -220,17 +214,23 @@ def decide_next_cell_to_explore(grid, random_probability=0.2):
     if random.random() < random_probability:
         return random.choice(borderline_cells)
 
-    # Find the closest borderline cell using straight-line distance
     min_distance = float('inf')
-    closest_borderline_cell = None
+    closest_priority_cell = None
 
     for cell in borderline_cells:
-        distance = heuristic((x,y), cell)
-        if distance < min_distance:
-            min_distance = distance
-            closest_borderline_cell = cell
+        straight_line_distance = heuristic((x, y), cell)
 
-    return closest_borderline_cell
+        # Calculate average distance to other b_cells
+        avg_distance_to_b_cells = sum(heuristic(cell, other_cell) for other_cell in borderline_cells) / len(borderline_cells)
+
+        # Combine the straight-line distance and average distance as criteria
+        combined_distance = straight_line_distance + eta*avg_distance_to_b_cells
+
+        if combined_distance < min_distance:
+            min_distance = combined_distance
+            closest_priority_cell = cell
+
+    return closest_priority_cell
 
 def process_state(obs: dict, kb: Prolog):
     positions["agent"] = obs['blstats'][1], obs['blstats'][0] 
@@ -280,8 +280,8 @@ def process_state(obs: dict, kb: Prolog):
         kb.retractall('standing_on(key)')
         
 def obschar_to_mask(obs):
-    # Create a mask for cells with ASCII values "(" or "." or "<" or ">" or "2373(open door) | or 2372 opendoor "-"
-    mask = (obs['chars'] == 40) | (obs['chars'] == 46) | (obs['chars'] == 60) |(obs['chars'] == 62) | (obs['glyphs'] == 2373) | (obs['glyphs'] == 2372)
+    # Create a mask for cells with ASCII values "(" or "." or "<" or ">" or 35 # or "2373(open door) | or 2372 opendoor "-"  
+    mask = (obs['chars'] == 40) | (obs['chars'] == 46) | (obs['chars'] == 60) |(obs['chars'] == 62) | (obs['chars'] == 35) | (obs['glyphs'] == 2373) | (obs['glyphs'] == 2372)
 
     # mask = np.logical_or(obs['chars'] == 40, obs['chars'] == 46, obs['chars'] == 60, obs['glyphs']==2373)
 
@@ -289,8 +289,16 @@ def obschar_to_mask(obs):
     new_array = np.where(mask, 0, 1)
 
     return new_array
-def perform_action(action, env, kb):
-    print(action)
+
+def is_wall(obs,i,j):
+    obj = bytes(obs['screen_descriptions'][i][j]).decode('utf-8').rstrip('\x00')
+    if 'wall' in obj:
+        return True
+    return False
+    
+def perform_action(action, env, kb,obs):
+    # print(action)
+    action_id=None
     if action == 'pick':
         action_id = 8
         kb.retractall('standing_on(key)')
@@ -299,17 +307,50 @@ def perform_action(action, env, kb):
     elif action == 'opendoor':
         action_id = 9
         kb.retractall('has(key)')
+        x,y = positions["agent"]
+        xd,yd = positions["door"]
+        dir=""
+        
+        if x-xd > 0:
+            dir="north"
+        elif x-xd <0:
+            dir="south"
+        elif y-yd>0:
+            dir="west"
+        elif y-yd<0:
+            dir="east"
+            
+        obs, reward, done, info = env.step(action_id)
+        obs, reward, done, info = env.step(actions[dir])
+        message = bytes(obs['message']).decode('utf-8').rstrip('\x00')
+        if "door open" in message:
+            kb.assertz(f'is_open(door)')    
+        
+        return obs, reward, done, info
 
     # Movement/Attack/Run/Get_To_Weapon actions
     # in the end, they all are movement in a direction
-    elif 'northeast' in action: action_id = 4
-    elif 'southeast' in action: action_id = 5
-    elif 'southwest' in action: action_id = 6
-    elif 'northwest' in action: action_id = 7
+    elif 'northeast' in action:
+        if positions["door"] and positions["agent"] == positions["door"] and is_wall(obs,positions["agent"][0]-1,positions["agent"][1]):
+            obs, reward, done, info = env.step(1)
+            action_id=0
+        else: action_id = 4
+            
+    elif 'southeast' in action: 
+        if positions["door"] and positions["agent"] == positions["door"] and is_wall(obs,positions["agent"][0],positions["agent"][1]-1):
+            obs, reward, done, info = env.step(2)
+            action_id=1
+        else: action_id = 5
+        
+    elif 'southwest' in action: 
+        action_id = 6
+    elif 'northwest' in action: 
+        action_id = 7
     elif 'north' in action: action_id = 0
     elif 'east' in action: action_id = 1
     elif 'south' in action: action_id = 2
     elif 'west' in action: action_id = 3
+
 
     # print(f'Action performed: {repr(env.actions[action_id])}')
     obs, reward, done, info = env.step(action_id)
@@ -318,13 +359,13 @@ def perform_action(action, env, kb):
 
 
 # indexes for showing the image are hard-coded
-def show_match(states: list):
-    image = plt.imshow(states[0][115:275, 480:750])
+def show_match(states: list,x0,x1,y0,y1):
+    image = plt.imshow(states[0][x0:x1, y0:y1])
     for state in states[1:]:
-        time.sleep(0.25)
+        time.sleep(0.05)
         display.display(plt.gcf())
         display.clear_output(wait=True)
-        image.set_data(state[115:275, 480:750])
+        image.set_data(state[x0:x1, y0:y1])
     time.sleep(0.25)
     display.display(plt.gcf())
     display.clear_output(wait=True)
