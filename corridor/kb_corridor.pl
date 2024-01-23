@@ -21,43 +21,61 @@
 % we should move towards the corridor end
 
 % Once reached the corridor_exit, we invert the direction 
-%
 
 %Taking into account the number of rats 
 
-
 :- dynamic position/3.
 :- dynamic place/1.
-:- dynamic num_rats_left/1
-:- dynamic on_agent_right/1
-:- dynamic inertia_dir/1
+
+:- dynamic corridor_type/1.    %(horizontal_from_left, horizontal_from_right,  % vertical_from_top, vertical_from_bottom)
+:- dynamic num_rats_left/1.
+:- dynamic on_agent_dir/2.
+:- dynamic inertia_dir/1.
+
+:- dynamic already_in_corridor/1.
+
+:- dynamic last_extreme_rel/1.
+:- dynamic last_extreme_abs/1.
 
 % RULES FOR ACTION SELECTION
 % REMEMBER: The action rules are ordered by priority
 
-action(get_to_corridor_start(Direction)) :- place(initial_room),
+action(get_to_corridor_start(Direction)) :- (place(not_in_corridor); place(corridor_start_minus1)),
                                     position(agent, AgentR, AgentC),
                                     position(corridor_start, CorrStartR, CorrStartC),
-                                    next_step(AgentR, AgentC, CorrStartR, CorrStartC, Direction).
+                                    next_step(AgentR, AgentC, CorrStartR, CorrStartC, Direction),
+                                    num_rats_left(N), N==6.
 
+%TODO: change: not generical
 
-action(get_to_final_target(east)) :- num_rats_left(N), N==0.
+action(get_to_final_target(Direction)) :- %TODO: change?
+                            num_rats_left(N), N==0,
+                            foreward_direction(Direction).
 
 % attack a rat
 % the attack is automatic when you move towards it
-% Requirements:
-%   - there must be a rat on the right of the agent 
-%       (since, in order to win, the fight has to take place in the corridor,
-%       the rats are always at the right of the agent)
-action(attack(east)) :- on_agent_right(rat).
 
-action(move(east)):- place(corridor_start).
-%inertia_direction(east) :- place(corridor_start).
+action(attack(Direction)) :- on_agent_dir(Direction, rat).
 
-action(move(west)) :- place(final_room); place(corridor_end).
-%inertia_direction(west) :- ...
+action(move(Direction)):- place(corridor_start), foreward_direction(Direction).
+
+action(move(Direction)) :- (place(corridor_end_plus1); place(corridor_end)),
+                                        num_rats_left(N), N=\=0,
+                                        backwards_direction(Direction). % TODO: substitute condition; 
+                                        % \+(N==0) is the correct notation?
 
 action(move(Direction)) :- inertia_dir(Direction).
+
+% -----------------------------------------------------------------------------------------------
+foreward_direction(east) :- corridor_type(horizontal_from_left).
+foreward_direction(south) :- corridor_type(vertical_from_top).
+foreward_direction(west) :- corridor_type(horizontal_from_right).
+foreward_direction(north) :- corridor_type(vertical_from_bottom).
+
+backwards_direction(south) :- corridor_type(vertical_from_bottom).
+backwards_direction(north) :- corridor_type(vertical_from_top).
+backwards_direction(west) :- corridor_type(horizontal_from_left).
+backwards_direction(east) :- corridor_type(horizontal_from_right).
 
 % -----------------------------------------------------------------------------------------------
 
@@ -70,9 +88,3 @@ next_step(R1,C1,R2,C2, D) :-
         ( C1 > C2 -> D = northwest; D = northeast );
         ( C1 > C2 -> D = southwest; D = southeast )
     ))).
-
-
-%has(agent, _, _) :- fail.
-
-%unsafe_position(_,_) :- fail.
-%safe_position(R,C) :- \+ unsafe_position(R,C).
