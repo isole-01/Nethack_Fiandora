@@ -5,7 +5,7 @@
 :- dynamic enter/1.
 :- dynamic is_open/1.
 
-action(go(stairs)) :- in_sight(stairs).
+action(go(stairs)) :- in_sight(stairs), is_open(door).
 action(enter(door)) :- is_open(door), standing_next(door).
 action(opendoor) :- standing_next(door), has(key), \+ is_open(door).
 action(pick) :- standing_on(key), \+ has(key).
@@ -14,9 +14,10 @@ action(pick) :- standing_on(key), \+ has(key).
 action(go(key)) :- \+ has(key), in_sight(key).
 
 % If you know where the door is and you have the key, action: go to the door
-action(go(door)) :- in_sight(door), has(key).
+action(go(door)) :- in_sight(door), has(key), \+ is_open(door).
 
 % If you dont have the key and you dont know where the key is, or where the door is, action: explore
-action(explore) :- (\+ has(key), \+ in_sight(key)) ; (has(key), \+ in_sight(door)).
+action(explore) :- (\+ has(key), \+ in_sight(key)) ; (has(key), \+ in_sight(door)); is_open(door) .
 
+% action(go(corridor)) :- in_sight(corridor) .
 

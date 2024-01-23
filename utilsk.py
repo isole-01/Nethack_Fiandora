@@ -163,18 +163,20 @@ def astar(array, start, goal):
 
                 heapq.heappush(oheap, (fscore[neighbor], neighbor))
     x,y=positions["agent"]
-    return [random.choice([(x-1, y-1), (x, y-1), (x+1, y-1),(x-1, y),(x+1, y),(x-1, y+1),(x, y+1),(x+1, y+1)])]
+    return -1
+    # return [random.choice([(x-1, y-1), (x, y-1), (x+1, y-1),(x-1, y),(x+1, y),(x-1, y+1),(x, y+1),(x+1, y+1)])]
     # raise ValueError("Can't find no path")
 
 #finds a front location in the map for something. for example: a door
+#64 is @
 def front_location(obs,i,j):
-    if obs['chars'][i+1][j]==46:
+    if obs['chars'][i+1][j] in [46,64]:
         return (i+1,j)
-    elif obs['chars'][i][j+1]==46:
+    elif obs['chars'][i][j+1]in [46,64]:
         return (i,j+1)
-    elif obs['chars'][i][j-1]==46:
+    elif obs['chars'][i][j-1]in [46,64]:
         return (i,j-1)
-    elif obs['chars'][i-1][j]==46:
+    elif obs['chars'][i-1][j]in [46,64]:
         return (i-1,j)
     raise ValueError("invalid i,j")
     
@@ -186,13 +188,15 @@ def find_borderline_cells(grid):
 
     for i in range(21):
         for j in range(79):
-            #46 is "."
-            if grid[i][j] == 46 or grid[i][j] == 35:
+            #46 is "." 
+            if grid[i][j] == 46 and grid[i][j-1] != 35 and grid[i][j+1] != 35:
                 # Check if any adjacent neighbor has a value of 32
                 for dx in [-1, 0, 1]:
                     for dy in [-1, 0, 1]:
                         if 0 <= i + dx  and 0 <= j + dy and grid[i + dx][j + dy] == 32:
                             borderline_cells.add((i, j))
+            # elif grid[i][j] == 35:
+                
                             
 
     return list(borderline_cells)  
@@ -246,13 +250,17 @@ def process_state(obs: dict, kb: Prolog):
                 if 'key' in obj:
                     kb.assertz(f'in_sight(key)')
                     positions["key"] = i, j 
+
+                # if positions["door"] and positions["door"]==positions["agent"]:
+                #     kb.retractall('standing_next(door)')
+
                     
                 elif 'door' in obj:
                     kb.assertz(f'in_sight(door)')
                     positions["door"] = i, j
                     if positions["door_front"] is None:
                         positions["door_front"]=front_location(obs,i,j)
-                    if is_infront(positions["agent"][0],positions["agent"][1],i,j):
+                    if positions["door_front"] == positions["agent"]:
                         print("next to door")
                         kb.assertz(f'standing_next(door)')
                     else:
@@ -295,7 +303,15 @@ def is_wall(obs,i,j):
     if 'wall' in obj:
         return True
     return False
-    
+
+def near_door(obs):
+    i,j=positions["agent"]
+    if not positions["door"]:
+        return False
+    l=heuristic((i,j),positions["door"])
+    if l < 1.5:
+        return True
+    return False
 def perform_action(action, env, kb,obs):
     # print(action)
     action_id=None
@@ -328,12 +344,32 @@ def perform_action(action, env, kb,obs):
         
         return obs, reward, done, info
 
+    elif near_door(obs) and 'northeast' in action:
+        a1,a2=random.choice([(0,1),(1,0)])
+        obs, reward, done, info = env.step(a1)
+        action_id=a2
+    elif near_door(obs) and 'southeast' in action:
+        a1,a2=random.choice([(2,1),(1,2)])
+        obs, reward, done, info = env.step(a1)
+        action_id=a2
+    elif near_door(obs) and 'southwest' in action:
+        a1,a2=random.choice([(2,3),(3,2)])
+        obs, reward, done, info = env.step(a1)
+        action_id=a2
+    elif near_door(obs) and 'northwest' in action:
+        a1,a2=random.choice([(0,3),(3,0)])
+        obs, reward, done, info = env.step(a1)
+        action_id=a2
+        
     # Movement/Attack/Run/Get_To_Weapon actions
     # in the end, they all are movement in a direction
     elif 'northeast' in action:
         if positions["door"] and positions["agent"] == positions["door"] and is_wall(obs,positions["agent"][0]-1,positions["agent"][1]):
             obs, reward, done, info = env.step(1)
             action_id=0
+        elif positions["door"] and positions["agent"] == positions["door"] and is_wall(obs,positions["agent"][0],positions["agent"][1]-1):
+            obs, reward, done, info = env.step(0)
+            action_id=1
         else: action_id = 4
             
     elif 'southeast' in action: 
